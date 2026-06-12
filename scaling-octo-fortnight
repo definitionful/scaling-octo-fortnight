@@ -1,0 +1,116 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+local Config = {
+    Enabled = false,
+    ShowHitboxes = false,
+    SizeMultiplier = 0
+}
+
+local gameMeta = getrawmetatable(game)
+local oldIndex = gameMeta.__index
+
+setreadonly(gameMeta, false)
+
+gameMeta.__index = newcclosure(function(self, key)
+    if not checkcaller() then
+        if key == "Size" or key == "Material" or key == "Transparency" then
+            if typeof(self) == "Instance" and tostring(self) == "HumanoidRootPart" then
+                if key == "Size" then 
+                    return Vector3.new(2, 2, 1) 
+                elseif key == "Material" then 
+                    return Enum.Material.Plastic 
+                elseif key == "Transparency" then
+                    return 1
+                end
+            end
+        end
+    end
+    
+    return oldIndex(self, key)
+end)
+
+setreadonly(gameMeta, true)
+
+local function updateHitboxes()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            
+            if hrp and hrp:IsA("BasePart") and humanoid and humanoid.Health > 0 then
+                
+                if Config.Enabled then
+                    local scale = (Config.SizeMultiplier == 0) and 1 or Config.SizeMultiplier
+                    hrp.Size = Vector3.new(2 * scale, 2 * scale, 1 * scale)
+                else
+                    hrp.Size = Vector3.new(2, 2, 1)
+                end
+
+                if Config.ShowHitboxes then
+                    hrp.Material = Enum.Material.ForceField
+                    hrp.Transparency = 0.5
+                else
+                    hrp.Material = Enum.Material.Plastic
+                    hrp.Transparency = 1
+                end
+                
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.5) do
+        updateHitboxes()
+    end
+end)
+
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Hitbox Expander",
+    SubTitle = "Metatable Bypass",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true, 
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl 
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Combat", Icon = "swords" })
+}
+
+local HitboxToggle = Tabs.Main:AddToggle("HitboxToggle", {
+    Title = "Enable Hitbox Expander", 
+    Default = false,
+    Callback = function(state)
+        Config.Enabled = state
+        updateHitboxes() 
+    end 
+})
+
+local VisualToggle = Tabs.Main:AddToggle("VisualToggle", {
+    Title = "Show Hitboxes (Forcefield)",
+    Default = false,
+    Callback = function(state)
+        Config.ShowHitboxes = state
+        updateHitboxes()
+    end
+})
+
+local HitboxSlider = Tabs.Main:AddSlider("HitboxSlider", {
+    Title = "Hitbox Size Multiplier",
+    Default = 0,
+    Min = 0,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        Config.SizeMultiplier = Value
+        updateHitboxes() 
+    end
+})
+
+Window:SelectTab(1)
