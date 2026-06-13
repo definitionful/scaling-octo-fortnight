@@ -1,12 +1,13 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
 
 local Config = {
     Enabled = false,
     ShowHitboxes = false,
     SizeMultiplier = 0
 }
+
+local originalStates = {}
 
 local gameMeta = getrawmetatable(game)
 local oldIndex = gameMeta.__index
@@ -15,14 +16,19 @@ setreadonly(gameMeta, false)
 
 gameMeta.__index = newcclosure(function(self, key)
     if not checkcaller() then
-        if key == "Size" or key == "Material" or key == "Transparency" then
-            if typeof(self) == "Instance" and tostring(self) == "HumanoidRootPart" then
-                if key == "Size" then 
-                    return Vector3.new(2, 2, 1) 
-                elseif key == "Material" then 
-                    return Enum.Material.Plastic 
-                elseif key == "Transparency" then
-                    return 1
+        if Config.Enabled or Config.ShowHitboxes then
+            if key == "Size" or key == "Material" or key == "Transparency" then
+                if typeof(self) == "Instance" and self.Name == "HumanoidRootPart" then
+                    local cachedData = originalStates[self]
+                    if cachedData then
+                        if key == "Size" then 
+                            return cachedData.Size 
+                        elseif key == "Material" then 
+                            return cachedData.Material 
+                        elseif key == "Transparency" then
+                            return cachedData.Transparency
+                        end
+                    end
                 end
             end
         end
@@ -33,6 +39,12 @@ end)
 
 setreadonly(gameMeta, true)
 
+Players.PlayerRemoving:Connect(function(player)
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        originalStates[player.Character.HumanoidRootPart] = nil
+    end
+end)
+
 local function updateHitboxes()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -41,19 +53,31 @@ local function updateHitboxes()
             
             if hrp and hrp:IsA("BasePart") and humanoid and humanoid.Health > 0 then
                 
+                if not originalStates[hrp] then
+                    originalStates[hrp] = {
+                        Size = hrp.Size,
+                        Material = hrp.Material,
+                        Transparency = hrp.Transparency
+                    }
+                end
+
+                local cached = originalStates[hrp]
+                
                 if Config.Enabled then
                     local scale = (Config.SizeMultiplier == 0) and 1 or Config.SizeMultiplier
-                    hrp.Size = Vector3.new(2 * scale, 2 * scale, 1 * scale)
+                    hrp.Size = Vector3.new(cached.Size.X * scale, cached.Size.Y * scale, cached.Size.Z * scale)
+                    hrp.CanCollide = false 
                 else
-                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Size = cached.Size
+                    hrp.CanCollide = true
                 end
 
                 if Config.ShowHitboxes then
                     hrp.Material = Enum.Material.ForceField
                     hrp.Transparency = 0.5
                 else
-                    hrp.Material = Enum.Material.Plastic
-                    hrp.Transparency = 1
+                    hrp.Material = cached.Material
+                    hrp.Transparency = cached.Transparency
                 end
                 
             end
