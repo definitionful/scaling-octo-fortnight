@@ -9,35 +9,41 @@ local Config = {
 
 local originalStates = {}
 
-local gameMeta = getrawmetatable(game)
-local oldIndex = gameMeta.__index
+-- Identify the executor
+local executorName = type(identifyexecutor) == "function" and identifyexecutor() or "Unknown"
 
-setreadonly(gameMeta, false)
+-- Only apply the metatable bypass if the executor is NOT Xeno
+if not string.match(executorName, "Xeno") then
+    local gameMeta = getrawmetatable(game)
+    local oldIndex = gameMeta.__index
 
-gameMeta.__index = newcclosure(function(self, key)
-    if not checkcaller() then
-        if Config.Enabled or Config.ShowHitboxes then
-            if key == "Size" or key == "Material" or key == "Transparency" then
-                if typeof(self) == "Instance" and self.Name == "HumanoidRootPart" then
-                    local cachedData = originalStates[self]
-                    if cachedData then
-                        if key == "Size" then 
-                            return cachedData.Size 
-                        elseif key == "Material" then 
-                            return cachedData.Material 
-                        elseif key == "Transparency" then
-                            return cachedData.Transparency
+    setreadonly(gameMeta, false)
+
+    gameMeta.__index = newcclosure(function(self, key)
+        if not checkcaller() then
+            if Config.Enabled or Config.ShowHitboxes then
+                if key == "Size" or key == "Material" or key == "Transparency" then
+                    if typeof(self) == "Instance" and self.Name == "HumanoidRootPart" then
+                        local cachedData = originalStates[self]
+                        if cachedData then
+                            if key == "Size" then 
+                                return cachedData.Size 
+                            elseif key == "Material" then 
+                                return cachedData.Material 
+                            elseif key == "Transparency" then
+                                return cachedData.Transparency
+                            end
                         end
                     end
                 end
             end
         end
-    end
-    
-    return oldIndex(self, key)
-end)
+        
+        return oldIndex(self, key)
+    end)
 
-setreadonly(gameMeta, true)
+    setreadonly(gameMeta, true)
+end
 
 Players.PlayerRemoving:Connect(function(player)
     if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
