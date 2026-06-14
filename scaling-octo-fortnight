@@ -4,7 +4,10 @@ local LocalPlayer = Players.LocalPlayer
 local Config = {
     Enabled = false,
     ShowHitboxes = false,
-    SizeMultiplier = 0
+    SizeMultiplier = 0,
+    TargetPart = "HumanoidRootPart",
+    HitboxColor = Color3.fromRGB(255, 0, 0), -- Default to Red
+    TeamCheck = false
 }
 
 local originalStates = {}
@@ -22,8 +25,9 @@ if not string.match(executorName, "Xeno") then
     gameMeta.__index = newcclosure(function(self, key)
         if not checkcaller() then
             if Config.Enabled or Config.ShowHitboxes then
-                if key == "Size" or key == "Material" or key == "Transparency" then
-                    if typeof(self) == "Instance" and self.Name == "HumanoidRootPart" then
+                -- Intercept checks for Size, Material, Transparency, Color, and CanCollide
+                if key == "Size" or key == "Material" or key == "Transparency" or key == "Color" or key == "CanCollide" then
+                    if typeof(self) == "Instance" and self.Name == Config.TargetPart then
                         local cachedData = originalStates[self]
                         if cachedData then
                             if key == "Size" then 
@@ -32,6 +36,10 @@ if not string.match(executorName, "Xeno") then
                                 return cachedData.Material 
                             elseif key == "Transparency" then
                                 return cachedData.Transparency
+                            elseif key == "Color" then
+                                return cachedData.Color
+                            elseif key == "CanCollide" then
+                                return cachedData.CanCollide
                             end
                         end
                     end
@@ -45,48 +53,68 @@ if not string.match(executorName, "Xeno") then
     setreadonly(gameMeta, true)
 end
 
+-- Cleanup when players leave
 Players.PlayerRemoving:Connect(function(player)
-    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-        originalStates[player.Character.HumanoidRootPart] = nil
+    for part, _ in pairs(originalStates) do
+        if not part.Parent or (player.Character and part:IsDescendantOf(player.Character)) then
+            originalStates[part] = nil
+        end
     end
 end)
 
 local function updateHitboxes()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            local humanoid = player.Character:FindFirstChild("Humanoid")
             
-            if hrp and hrp:IsA("BasePart") and humanoid and humanoid.Health > 0 then
-                
-                if not originalStates[hrp] then
-                    originalStates[hrp] = {
-                        Size = hrp.Size,
-                        Material = hrp.Material,
-                        Transparency = hrp.Transparency
+            -- Determine if we should ignore this player due to Team Check
+            local isTeammate = Config.TeamCheck and player.Team == LocalPlayer.Team
+
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            local targetPart = player.Character:FindFirstChild(Config.TargetPart)
+            
+            -- Cache the target part if it exists and hasn't been cached
+            if targetPart and targetPart:IsA("BasePart") and humanoid and humanoid.Health > 0 then
+                if not originalStates[targetPart] then
+                    originalStates[targetPart] = {
+                        Size = targetPart.Size,
+                        Material = targetPart.Material,
+                        Transparency = targetPart.Transparency,
+                        Color = targetPart.Color,
+                        CanCollide = targetPart.CanCollide
                     }
                 end
-
-                local cached = originalStates[hrp]
-                
-                if Config.Enabled then
-                    local scale = (Config.SizeMultiplier == 0) and 1 or Config.SizeMultiplier
-                    hrp.Size = Vector3.new(cached.Size.X * scale, cached.Size.Y * scale, cached.Size.Z * scale)
-                    hrp.CanCollide = false 
-                else
-                    hrp.Size = cached.Size
-                    hrp.CanCollide = true
-                end
-
-                if Config.ShowHitboxes then
-                    hrp.Material = Enum.Material.ForceField
-                    hrp.Transparency = 0.5
-                else
-                    hrp.Material = cached.Material
-                    hrp.Transparency = cached.Transparency
-                end
-                
             end
+
+            -- Iterate through ALL cached parts for this character to update or revert them
+            for part, cached in pairs(originalStates) do
+                if part:IsDescendantOf(player.Character) then
+                    
+                    -- Check if this specific part is the current target and player is valid/enemy
+                    local isValidTarget = (part.Name == Config.TargetPart) and (not isTeammate) and (humanoid and humanoid.Health > 0)
+
+                    -- Handle Size & Collision Toggle
+                    if Config.Enabled and isValidTarget then
+                        local scale = (Config.SizeMultiplier == 0) and 1 or Config.SizeMultiplier
+                        part.Size = Vector3.new(cached.Size.X * scale, cached.Size.Y * scale, cached.Size.Z * scale)
+                        part.CanCollide = false -- Forces collision off for Head/HRP to prevent flinging
+                    else
+                        part.Size = cached.Size
+                        part.CanCollide = cached.CanCollide -- Safely reverts to original state
+                    end
+
+                    -- Handle Visuals Toggle
+                    if Config.ShowHitboxes and isValidTarget then
+                        part.Material = Enum.Material.ForceField
+                        part.Transparency = 0 
+                        part.Color = Config.HitboxColor
+                    else
+                        part.Material = cached.Material
+                        part.Transparency = cached.Transparency
+                        part.Color = cached.Color
+                    end
+                end
+            end
+            
         end
     end
 end
@@ -97,6 +125,7 @@ task.spawn(function()
     end
 end)
 
+-- UI Setup
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
@@ -127,6 +156,36 @@ local VisualToggle = Tabs.Main:AddToggle("VisualToggle", {
     Default = false,
     Callback = function(state)
         Config.ShowHitboxes = state
+        updateHitboxes()
+    end
+})
+
+local TeamCheckToggle = Tabs.Main:AddToggle("TeamCheckToggle", {
+    Title = "Team Check",
+    Description = "Don't expand teammates' hitboxes",
+    Default = false,
+    Callback = function(state)
+        Config.TeamCheck = state
+        updateHitboxes()
+    end
+})
+
+local TargetDropdown = Tabs.Main:AddDropdown("TargetDropdown", {
+    Title = "Target Part",
+    Values = {"HumanoidRootPart", "Head"},
+    Multi = false,
+    Default = 1,
+    Callback = function(Value)
+        Config.TargetPart = Value
+        updateHitboxes()
+    end
+})
+
+local HitboxColorpicker = Tabs.Main:AddColorpicker("HitboxColor", {
+    Title = "Hitbox Color",
+    Default = Color3.fromRGB(255, 0, 0),
+    Callback = function(Value)
+        Config.HitboxColor = Value
         updateHitboxes()
     end
 })
